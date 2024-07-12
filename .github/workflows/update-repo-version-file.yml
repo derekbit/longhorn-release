@@ -1,0 +1,33 @@
+name: Update Longhorn Repository Version File in Default Branch (master/main)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, ex: v1.8.0-dev"
+        required: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_ACTION_TOKEN }}
+
+    steps:
+    - name: Setup Git
+      run: |
+        gh auth setup-git
+
+    - run: |
+        git config --global user.email "dko@suse.com"
+        git config --global user.name "David Ko"
+
+    - uses: actions/checkout@v4
+
+    - name: Create repo branches
+      run: ./scripts/update-repo-version-file.sh ${{ inputs.version }}
