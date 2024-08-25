@@ -104,19 +104,10 @@ jobs:
       name: Create previous tag if it doesn't exist.
       if: steps.check_sprint_build_required.outcome == 'success'
       run: |
-        repos=("longhorn-manager"
-               "longhorn-engine"
-               "longhorn-instance-manager"
-               "longhorn-share-manager"
-               "backing-image-manager"
-               "longhorn-ui"
-               "longhorn")
-        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
-          repos+=("cli")
-        fi
+        repos=("longhorn-manager)
 
         for repo in "${repos[@]}"; do
-          exists=$(gh api "repos/longhorn/${repo}/git/refs/tags/${{ steps.var.outputs.prev_tag }}" > /dev/null 2>&1; echo $?)
+          exists=$(gh api "repos/derekbit/${repo}/git/refs/tags/${{ steps.var.outputs.prev_tag }}" > /dev/null 2>&1; echo $?)
           echo "Tag ${{ steps.var.outputs.prev_tag }} already exists: ${exists}"
           if [ $exists -ne 0 ]; then
             echo "Creating tag ${{ steps.var.outputs.prev_tag }} for repository ${repo}..."
@@ -142,11 +133,11 @@ jobs:
                   }
                 }
               }
-            ' -F owner=longhorn -F repo=${repo} -F branch="${{ steps.var.outputs.branch }}" -F until="${formatted_date}" --jq '.data.repository.ref.target.history.nodes[0].oid')
+            ' -F owner=derekbit -F repo=${repo} -F branch="${{ steps.var.outputs.branch }}" -F until="${formatted_date}" --jq '.data.repository.ref.target.history.nodes[0].oid')
 
             echo "Commit ${commit_sha} found before ${prev_sprint_end_date} for repository ${repo}."
             if [ -n "$commit_sha" ]; then
-              gh api "repos/longhorn/${repo}/git/refs" \
+              gh api "repos/derekbit/${repo}/git/refs" \
                 -F ref="refs/tags/${{ steps.var.outputs.prev_tag }}" \
                 -F sha="${commit_sha}"
             else
@@ -162,23 +153,14 @@ jobs:
       if: steps.check_sprint_build_required.outcome == 'success'
       run: |
         common_args=(
-          --owner longhorn
+          --owner derekbit
           --repo longhorn
           --branch "${{ steps.var.outputs.branch }}"
           --tag "${{ steps.var.outputs.tag }}"
           --longhorn-chart-repo charts
           --longhorn-repos longhorn-manager
-          --longhorn-repos longhorn-engine
-          --longhorn-repos longhorn-instance-manager
-          --longhorn-repos longhorn-share-manager
-          --longhorn-repos backing-image-manager
-          --longhorn-repos longhorn-ui
           --dryrun
         )
-
-        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
-          common_args+=(--longhorn-repos cli:longhorn-cli)
-        fi
 
         renote pr "${common_args[@]}"
 
@@ -193,21 +175,11 @@ jobs:
       if: steps.check_sprint_build_required.outcome == 'success'
       run: |
         common_args=(
-          --owner longhorn
+          --owner derekbit
           --branch "${{ steps.var.outputs.branch }}"
           --tag "${{ steps.var.outputs.tag }}"
           --repos longhorn-manager
-          --repos longhorn-engine
-          --repos longhorn-instance-manager
-          --repos longhorn-share-manager
-          --repos backing-image-manager
-          --repos longhorn-ui
-          --repos longhorn
         )
-
-        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
-          common_args+=(--repos cli)
-        fi
 
         renote tag "${common_args[@]}"
 
@@ -217,20 +189,10 @@ jobs:
       run: |
         repos=(
           longhorn-manager
-          longhorn-engine
-          longhorn-instance-manager
-          longhorn-share-manager
-          backing-image-manager
-          longhorn-ui
-          longhorn
         )
 
-        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
-          repos+=(cli)
-        fi
-
         output=$(renote changelog \
-          --owner longhorn \
+          --owner derekbit \
           --branch "${{ steps.var.outputs.branch }}" \
           --tag "${{ steps.var.outputs.tag }}" \
           --prev-tag "${{ steps.var.outputs.prev_tag }}" \
@@ -240,54 +202,4 @@ jobs:
         echo "$output"
         echo "$output" >> ./assets/release-sprint/post-note.md
 
-    - id: release
-      name: Create a release
-      if: steps.check_sprint_build_required.outcome == 'success'
-      run: |
-        common_args=(
-          --owner longhorn
-          --repo longhorn
-          --branch "${{ steps.var.outputs.branch }}"
-          --tag "${{ steps.var.outputs.tag }}"
-          --milestone "${{ steps.var.outputs.milestone }}"
-          --pre-note ./assets/release-sprint/pre-note.md
-          --post-note ./assets/release-sprint/post-note.md
-          --note-contributors innobead
-          --since-days 14
-          --exclude-labels "kind/test"
-          --exclude-labels "area/infra"
-          --exclude-labels "area/ci"
-          --exclude-labels "area/qa"
-          --exclude-labels "wontfix"
-          --exclude-labels "duplicated"
-          --exclude-labels "invalid"
-          --exclude-labels "release/task"
-          --note-section-labels "highlight"
-          --note-section-labels "kind/feature"
-          --note-section-labels "kind/improvement"
-          --note-section-labels "kind/bug"
-          --note-section-labels "area/performance"
-          --note-section-labels "area/resilience"
-          --note-section-labels "area/stability"
-          --note-section-labels "area/scalability"
-          --note-section-labels "area/benchmark"
-          --pre-hook ./scripts/check-images-ready.sh
-          --pre-hook-args "longhornio/longhorn-manager:${{ steps.var.outputs.tag }}"
-          --pre-hook-args "longhornio/longhorn-engine:${{ steps.var.outputs.tag }}"
-          --pre-hook-args "longhornio/longhorn-instance-manager:${{ steps.var.outputs.tag }}"
-          --pre-hook-args "longhornio/longhorn-share-manager:${{ steps.var.outputs.tag }}"
-          --pre-hook-args "longhornio/backing-image-manager:${{ steps.var.outputs.tag }}"
-          --pre-hook-args "longhornio/longhorn-ui:${{ steps.var.outputs.tag }}"
-          --artifacts ./longhorn.yaml
-          --artifacts ./longhorn-images.txt
-          --artifacts ./charts.tar.gz
-          --artifacts ./longhorn-images-sbom.tar.gz
-          --pre-release
-          --draft
-        )
-
-        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
-          common_args+=(--pre-hook-args "longhornio/longhorn-cli:${{ steps.var.outputs.tag }}")
-        fi
-
-        renote release "${common_args[@]}"
+ 
