@@ -3,6 +3,8 @@ name: Release - Sprint
 on:
   workflow_dispatch:
     inputs:
+  schedule:
+    - cron: '0 1 * * 0' # every Sunday at 01:00
 
 defaults:
   run:
@@ -24,27 +26,26 @@ jobs:
 
     strategy:
       matrix:
-        branch_tag: ['master:v1.7.0']
+        branch_tag: ['master:v1.8.0', 'v1.7.x:v1.7.1', 'v1.6.x:v1.6.3']
 
     steps:
-    - name: Setup Git
-      run: |
-        gh auth setup-git
-
-    - uses: anchore/sbom-action/download-syft@v0.17.0
-
-    - run: |
-        git config --global user.email "dko@suse.com"
-        git config --global user.name "David Ko"
-
-    - uses: actions/checkout@v4
-
-    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
-        repository: innobead/renote
-        ref: main
-        path: renote
-    - run: cargo install --path ./renote
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install requests
+
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Check sprint build is required
+      id: check_sprint_build_required
+      continue-on-error: true
+      run: |
+        python ./scripts/check-sprint-last-day.py "longhorn" "longhorn" "Longhorn Sprint"
 
     - id: var
       name: Get branch, tag, milestone
@@ -53,55 +54,187 @@ jobs:
         branch="${tokens[0]}"
         tag="${tokens[1]}-dev-$(date '+%Y%m%d')"
         milestone="${tokens[2]}"
+  
+        current_date=$(date '+%Y%m%d')
+        prev_sprint_end_date=$(date -d "${current_date} - 14 days" '+%Y%m%d')
+  
+        prev_tag="${tokens[1]}-dev-${prev_sprint_end_date}"
 
         if [ -z "${tokens[2]}" ]; then milestone="${tokens[1]}" ; fi
 
         echo "branch=${branch}" >> $GITHUB_OUTPUT
         echo "tag=${tag}" >> $GITHUB_OUTPUT
+        echo "prev_tag=${prev_tag}" >> $GITHUB_OUTPUT
         echo "milestone=${milestone}" >> $GITHUB_OUTPUT
 
         cat <<EOF
         branch=${branch}
         tag=${tag}
+        prev_tag=${prev_tag}
         milestone=${milestone}
         EOF
+  
+    - name: Setup Git
+      if: steps.check_sprint_build_required.outcome == 'success'
+      run: |
+        gh auth setup-git
+
+    - uses: anchore/sbom-action/download-syft@v0.17.0
+      if: steps.check_sprint_build_required.outcome == 'success'
+
+    - run: |
+        git config --global user.email "dko@suse.com"
+        git config --global user.name "David Ko"
+      if: steps.check_sprint_build_required.outcome == 'success'
+
+    - uses: actions/checkout@v4
+      if: steps.check_sprint_build_required.outcome == 'success'
+
+    - uses: actions/checkout@v4
+      with:
+        repository: innobead/renote
+        ref: main
+        path: renote
+      if: steps.check_sprint_build_required.outcome == 'success'
+
+    - run: cargo install --path ./renote
+      if: steps.check_sprint_build_required.outcome == 'success'
+
+    - id: prev_tag
+      name: Create previous tag if it doesn't exist.
+      if: steps.check_sprint_build_required.outcome == 'success'
+      run: |
+        repos=("longhorn-manager"
+               "longhorn-engine"
+               "longhorn-instance-manager"
+               "longhorn-share-manager"
+               "backing-image-manager"
+               "longhorn-ui"
+               "longhorn")
+        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
+          repos+=("cli")
+        fi
+
+        for repo in "${repos[@]}"; do
+          exists=$(gh api "repos/longhorn/${repo}/git/refs/tags/${{ steps.var.outputs.prev_tag }}" > /dev/null 2>&1; echo $?)
+          echo "Tag ${{ steps.var.outputs.prev_tag }} already exists: ${exists}"
+          if [ $exists -ne 0 ]; then
+            echo "Creating tag ${{ steps.var.outputs.prev_tag }} for repository ${repo}..."
+            current_date=$(date '+%Y%m%d')
+            prev_sprint_end_date=$(date -d "${current_date} - 14 days" '+%Y%m%d')
+
+            formatted_date=$(date -u -Is -d "${prev_sprint_end_date} 23:59:59")
+
+            commit_sha=$(gh api graphql -f query='
+              query($owner: String!, $repo: String!, $branch: String!, $until: GitTimestamp!) {
+                repository(owner: $owner, name: $repo) {
+                  ref(qualifiedName: $branch) {
+                    target {
+                      ... on Commit {
+                        history(until: $until, first: 1) {
+                          nodes {
+                            oid
+                            committedDate
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ' -F owner=longhorn -F repo=${repo} -F branch="${{ steps.var.outputs.branch }}" -F until="${formatted_date}" --jq '.data.repository.ref.target.history.nodes[0].oid')
+
+            echo "Commit ${commit_sha} found before ${prev_sprint_end_date} for repository ${repo}."
+            if [ -n "$commit_sha" ]; then
+              gh api "repos/longhorn/${repo}/git/refs" \
+                -F ref="refs/tags/${{ steps.var.outputs.prev_tag }}" \
+                -F sha="${commit_sha}"
+            else
+              echo "No commit found before ${prev_sprint_end_date} for repository ${repo}."
+            fi
+          else
+            echo "Tag ${{ steps.var.outputs.prev_tag }} already exists for repository ${repo}."
+          fi
+        done
+
+    - id: pr
+      name: Create a release PR (dryrun)
+      if: steps.check_sprint_build_required.outcome == 'success'
+      run: |
+        common_args=(
+          --owner longhorn
+          --repo longhorn
+          --branch "${{ steps.var.outputs.branch }}"
+          --tag "${{ steps.var.outputs.tag }}"
+          --longhorn-chart-repo charts
+          --longhorn-repos longhorn-manager
+          --longhorn-repos longhorn-engine
+          --longhorn-repos longhorn-instance-manager
+          --longhorn-repos longhorn-share-manager
+          --longhorn-repos backing-image-manager
+          --longhorn-repos longhorn-ui
+          --dryrun
+        )
+
+        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
+          common_args+=(--longhorn-repos cli:longhorn-cli)
+        fi
+
+        renote pr "${common_args[@]}"
 
     - id: artifact
       name: Collect artifacts
+      if: steps.check_sprint_build_required.outcome == 'success'
       run: |
         ./scripts/collect-artifacts.sh longhorn charts
 
     - id: tag
       name: Create a tag for each release repo
+      if: steps.check_sprint_build_required.outcome == 'success'
       run: |
-        renote tag \
-          --owner longhorn \
-          --branch ${{ steps.var.outputs.branch }} \
-          --tag ${{ steps.var.outputs.tag }} \
-          --repos longhorn-manager \
-          --repos longhorn-engine \
-          --repos longhorn-instance-manager \
-          --repos longhorn-share-manager \
-          --repos backing-image-manager \
-          --repos longhorn-ui \
-          --repos cli \
+        common_args=(
+          --owner longhorn
+          --branch "${{ steps.var.outputs.branch }}"
+          --tag "${{ steps.var.outputs.tag }}"
+          --repos longhorn-manager
+          --repos longhorn-engine
+          --repos longhorn-instance-manager
+          --repos longhorn-share-manager
+          --repos backing-image-manager
+          --repos longhorn-ui
           --repos longhorn
+        )
+
+        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
+          common_args+=(--repos cli)
+        fi
+
+        renote tag "${common_args[@]}"
 
     - id: changelog
       name: Create a changelog from the last release
+      if: steps.check_sprint_build_required.outcome == 'success'
       run: |
+        repos=(
+          longhorn-manager
+          longhorn-engine
+          longhorn-instance-manager
+          longhorn-share-manager
+          backing-image-manager
+          longhorn-ui
+          longhorn
+        )
+
+        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
+          repos+=(cli)
+        fi
+
         output=$(renote changelog \
           --owner longhorn \
-          --branch ${{ steps.var.outputs.branch }} \
-          --tag ${{ steps.var.outputs.tag }} \
-          --repos longhorn-manager \
-          --repos longhorn-engine \
-          --repos longhorn-instance-manager \
-          --repos longhorn-share-manager \
-          --repos backing-image-manager \
-          --repos longhorn-ui \
-          --repos cli \
-          --repos longhorn \
+          --branch "${{ steps.var.outputs.branch }}" \
+          --tag "${{ steps.var.outputs.tag }}" \
+          --prev-tag "${{ steps.var.outputs.prev_tag }}" \
+          $(printf -- '--repos %s ' "${repos[@]}") \
           --markdown-folding)
 
         echo "$output"
@@ -109,45 +242,52 @@ jobs:
 
     - id: release
       name: Create a release
+      if: steps.check_sprint_build_required.outcome == 'success'
       run: |
-        renote release \
-          --owner longhorn \
-          --repo longhorn \
-          --branch ${{ steps.var.outputs.branch }} \
-          --tag ${{ steps.var.outputs.tag }} \
-          --milestone ${{ steps.var.outputs.milestone }} \
-          --pre-note ./assets/release-sprint/pre-note.md \
-          --post-note ./assets/release-sprint/post-note.md \
-          --note-contributors innobead \
-          --since-days 14 \
-          --exclude-labels "kind/test" \
-          --exclude-labels "area/infra" \
-          --exclude-labels "area/ci" \
-          --exclude-labels "area/qa" \
-          --exclude-labels "wontfix" \
-          --exclude-labels "duplicated" \
-          --exclude-labels "invalid" \
-          --exclude-labels "release/task" \
-          --note-section-labels "highlight" \
-          --note-section-labels "kind/feature" \
-          --note-section-labels "kind/improvement" \
-          --note-section-labels "kind/bug" \
-          --note-section-labels "area/performance" \
-          --note-section-labels "area/resilience" \
-          --note-section-labels "area/stability" \
-          --note-section-labels "area/scalability" \
-          --note-section-labels "area/benchmark" \
-          --pre-hook ./scripts/check-images-ready.sh \
-          --pre-hook-args "longhornio/longhorn-manager:${{ steps.var.outputs.tag }}" \
-          --pre-hook-args "longhornio/longhorn-engine:${{ steps.var.outputs.tag }}" \
-          --pre-hook-args "longhornio/longhorn-instance-manager:${{ steps.var.outputs.tag }}" \
-          --pre-hook-args "longhornio/longhorn-share-manager:${{ steps.var.outputs.tag }}" \
-          --pre-hook-args "longhornio/backing-image-manager:${{ steps.var.outputs.tag }}" \
-          --pre-hook-args "longhornio/longhorn-ui:${{ steps.var.outputs.tag }}" \
-          --pre-hook-args "longhornio/longhorn-cli:${{ steps.var.outputs.tag }}" \
-          --artifacts ./longhorn.yaml \
-          --artifacts ./longhorn-images.txt \
-          --artifacts ./charts.tar.gz \
-          --artifacts ./longhorn-images-sbom.tar.gz \
-          --pre-release \
+        common_args=(
+          --owner longhorn
+          --repo longhorn
+          --branch "${{ steps.var.outputs.branch }}"
+          --tag "${{ steps.var.outputs.tag }}"
+          --milestone "${{ steps.var.outputs.milestone }}"
+          --pre-note ./assets/release-sprint/pre-note.md
+          --post-note ./assets/release-sprint/post-note.md
+          --note-contributors innobead
+          --since-days 14
+          --exclude-labels "kind/test"
+          --exclude-labels "area/infra"
+          --exclude-labels "area/ci"
+          --exclude-labels "area/qa"
+          --exclude-labels "wontfix"
+          --exclude-labels "duplicated"
+          --exclude-labels "invalid"
+          --exclude-labels "release/task"
+          --note-section-labels "highlight"
+          --note-section-labels "kind/feature"
+          --note-section-labels "kind/improvement"
+          --note-section-labels "kind/bug"
+          --note-section-labels "area/performance"
+          --note-section-labels "area/resilience"
+          --note-section-labels "area/stability"
+          --note-section-labels "area/scalability"
+          --note-section-labels "area/benchmark"
+          --pre-hook ./scripts/check-images-ready.sh
+          --pre-hook-args "longhornio/longhorn-manager:${{ steps.var.outputs.tag }}"
+          --pre-hook-args "longhornio/longhorn-engine:${{ steps.var.outputs.tag }}"
+          --pre-hook-args "longhornio/longhorn-instance-manager:${{ steps.var.outputs.tag }}"
+          --pre-hook-args "longhornio/longhorn-share-manager:${{ steps.var.outputs.tag }}"
+          --pre-hook-args "longhornio/backing-image-manager:${{ steps.var.outputs.tag }}"
+          --pre-hook-args "longhornio/longhorn-ui:${{ steps.var.outputs.tag }}"
+          --artifacts ./longhorn.yaml
+          --artifacts ./longhorn-images.txt
+          --artifacts ./charts.tar.gz
+          --artifacts ./longhorn-images-sbom.tar.gz
+          --pre-release
           --draft
+        )
+
+        if [ "${{ steps.var.outputs.branch }}" != "v1.6.x" ]; then
+          common_args+=(--pre-hook-args "longhornio/longhorn-cli:${{ steps.var.outputs.tag }}")
+        fi
+
+        renote release "${common_args[@]}"
