@@ -23,7 +23,7 @@ images=(
   longhornio/longhorn-cli
 )
 
-func replace_images_tags_in_longhorn_images_txt() {
+function replace_images_tags_in_longhorn_images_txt() {
   local input_file="$1"
   local tag="$2"
 
