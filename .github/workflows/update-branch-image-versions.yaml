@@ -25,5 +25,5 @@ jobs:
 
     - uses: actions/checkout@v4
 
-    - name: Update repo version files
-      run: ./scripts/update-repo-version-file.sh ${{ inputs.version }}
+    - name: Update repo branch image versions
+      run: ./scripts/update-repo-branch-image-versions.sh ${{ inputs.version }}
