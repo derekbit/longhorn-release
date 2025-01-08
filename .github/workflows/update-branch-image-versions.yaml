@@ -1,0 +1,29 @@
+name: Update Longhorn Repository Branch Image Versions
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch, ex: v1.8.x"
+        required: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_ACTION_TOKEN }}
+
+    steps:
+    - name: Setup Git
+      run: |
+        gh auth setup-git
+
+    - uses: actions/checkout@v4
+
+    - name: Update repo version files
+      run: ./scripts/update-repo-version-file.sh ${{ inputs.version }}
