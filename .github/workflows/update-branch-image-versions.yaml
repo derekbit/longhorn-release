@@ -31,7 +31,7 @@ jobs:
     - name: Update repo branch image tags
       run: ./scripts/update-repo-branch-image-tags.sh ${{ inputs.branch }} ${{ inputs.tag }}
 
-    - name: Create Pull Request
+    - name: Commit and Create Pull Request
       uses: peter-evans/create-pull-request@v7
       with:
         branch: "update-image-tags-${{ inputs.branch }}"

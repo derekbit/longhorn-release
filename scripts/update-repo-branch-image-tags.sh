@@ -74,12 +74,5 @@ git checkout "$branch"
 
 replace_images_tags_in_longhorn_images_txt "deploy/longhorn-images.txt" "${tag}"
 
-# Create a new branch for the PR
-branch_name="update-image-tags-${branch}"
-git checkout -b "$branch_name"
-
-git add "deploy/longhorn-images.txt"
-git commit -s -m "chore: update image tags in deploy/longhorn-images.txt"
-
 popd
 popd
