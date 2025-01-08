@@ -30,3 +30,14 @@ jobs:
 
     - name: Update repo branch image tags
       run: ./scripts/update-repo-branch-image-tags.sh ${{ inputs.branch }} ${{ inputs.tag }}
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v7
+      with:
+        branch: "update-image-tags-${{ inputs.branch }}"
+        commit-message: "chore: update image tags in deploy/longhorn-images.txt"
+        title: "Update image tags for branch ${{ inputs.branch }}"
+        body: |
+          This PR updates the image tags in `deploy/longhorn-images.txt` to use the tag `${{ inputs.tag }}`.
+        labels: |
+          automation

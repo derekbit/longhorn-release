@@ -34,12 +34,10 @@ function replace_images_tags_in_longhorn_images_txt() {
     return 1
   fi
 
-  # Read the input file line by line
   while IFS= read -r line; do
     modified=false
     for img in "${images[@]}"; do
       if [[ "$line" == *"$img"* ]]; then
-        # Ensure the image tag is replaced only if it exists
         if [[ "$line" =~ $img(:[^ ]*)? ]]; then
           line=$(echo "$line" | sed -E "s|$img(:[^ ]*)?|$img:$tag|")
           modified=true
@@ -47,8 +45,6 @@ function replace_images_tags_in_longhorn_images_txt() {
         fi
       fi
     done
-
-    # Write the (possibly modified) line to the output file
     echo "$line" >> "$output_file"
   done < "$input_file"
 
@@ -71,22 +67,19 @@ mkdir -p $repos_dir
 
 pushd $repos_dir
 
-gh repo clone derekbit/longhorn 
+gh repo clone derekbit/longhorn
 pushd longhorn
 
 git checkout "$branch"
 
 replace_images_tags_in_longhorn_images_txt "deploy/longhorn-images.txt" "${tag}"
 
+# Create a new branch for the PR
+branch_name="update-image-tags-${branch}"
+git checkout -b "$branch_name"
+
 git add "deploy/longhorn-images.txt"
-git commit -s -m "chore(version): update version file to ${version}"
+git commit -s -m "chore: update image tags in deploy/longhorn-images.txt"
 
-git status
-
-# echo ${version} >version
-#  git add version
-#  git commit -s -m "chore(version): update version file to ${version}"
-#  git push -u origin HEAD
 popd
-
 popd
