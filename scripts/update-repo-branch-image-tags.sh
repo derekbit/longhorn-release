@@ -3,7 +3,7 @@
 set -o errexit
 set -o xtrace
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -ne 2 ]; then
   echo "Illegal number of arguments. branch and tag are required." >/dev/stderr
   exit 1
 fi
