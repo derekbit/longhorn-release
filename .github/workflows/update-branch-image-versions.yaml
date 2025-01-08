@@ -1,10 +1,13 @@
-name: Update Longhorn Repository Branch Image Versions
+name: Update Longhorn Repository Branch Image Tags
 
 on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "Branch, ex: v1.8.x"
+        description: "Branch, ex: v1.7.x"
+        required: true
+      tag:
+        description: "Tag, ex: v1.7.x-head"
         required: true
 
 defaults:
@@ -25,5 +28,5 @@ jobs:
 
     - uses: actions/checkout@v4
 
-    - name: Update repo branch image versions
-      run: ./scripts/update-repo-branch-image-versions.sh ${{ inputs.version }}
+    - name: Update repo branch image tags
+      run: ./scripts/update-repo-branch-image-tags.sh ${{ inputs.branch }} ${{ inputs.tag }}
