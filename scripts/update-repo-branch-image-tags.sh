@@ -4,13 +4,14 @@ set -o errexit
 set -o xtrace
 
 if [ "$#" -ne 1 ]; then
-  echo "Illegal number of arguments. branch is required." >/dev/stderr
+  echo "Illegal number of arguments. branch and tag are required." >/dev/stderr
   exit 1
 fi
 
-version=$1
-repos_dir=.repos
+branch=$1
+tag=$2
 
+repos_dir=.repos
 
 images=(
   longhornio/backing-image-manager
@@ -22,14 +23,14 @@ images=(
   longhornio/longhorn-cli
 )
 
-func replace_images_versions_in_longhorn_images_txt() {
+func replace_images_tags_in_longhorn_images_txt() {
   local input_file="$1"
-  local version="$2"
+  local tag="$2"
 
   local output_file="${input_file}.new"
 
-  if [ -z "$input_file" ] || [ -z "$version" ]; then
-    echo "Usage: replace_longhorn_images <input_file> <version>"
+  if [ -z "$input_file" ] || [ -z "$tag" ]; then
+    echo "Usage: replace_longhorn_images <input_file> <tag>"
     return 1
   fi
 
@@ -40,7 +41,7 @@ func replace_images_versions_in_longhorn_images_txt() {
       if [[ "$line" == *"$img"* ]]; then
         # Ensure the image tag is replaced only if it exists
         if [[ "$line" =~ $img(:[^ ]*)? ]]; then
-          line=$(echo "$line" | sed -E "s|$img(:[^ ]*)?|$img:$version|")
+          line=$(echo "$line" | sed -E "s|$img(:[^ ]*)?|$img:$tag|")
           modified=true
           break
         fi
@@ -70,10 +71,12 @@ mkdir -p $repos_dir
 
 pushd $repos_dir
 
-gh repo clone derekbit/longhorn
+gh repo clone derekbit/longhorn 
 pushd longhorn
 
-replace_images_versions_in_longhorn_images_txt "deploy/longhorn-images.txt" "${version}"
+git checkout "$branch"
+
+replace_images_tags_in_longhorn_images_txt "deploy/longhorn-images.txt" "${tag}"
 
 git add "deploy/longhorn-images.txt"
 git commit -s -m "chore(version): update version file to ${version}"
