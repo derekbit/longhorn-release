@@ -1,0 +1,43 @@
+name: Update Longhorn Repository Branch Image Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch, ex: v1.7.x"
+        required: true
+      tag:
+        description: "Tag, ex: v1.7.x-head"
+        required: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_ACTION_TOKEN }}
+
+    steps:
+    - name: Setup Git
+      run: |
+        gh auth setup-git
+
+    - uses: actions/checkout@v4
+
+    - name: Update repo branch image tags
+      run: ./scripts/update-repo-branch-image-tags.sh ${{ inputs.branch }} ${{ inputs.tag }}
+
+    - name: Commit and Create Pull Request
+      uses: peter-evans/create-pull-request@v7
+      with:
+        branch: "update-image-tags-${{ inputs.branch }}"
+        commit-message: "chore: update image tags in deploy/longhorn-images.txt"
+        title: "Update image tags for branch ${{ inputs.branch }}"
+        body: |
+          This PR updates the image tags in `deploy/longhorn-images.txt` to use the tag `${{ inputs.tag }}`.
+        labels: |
+          automation
